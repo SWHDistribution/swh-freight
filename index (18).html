@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SWH Freight Allocator + Volume DB</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f0f0f;--surface:#181818;--surface2:#222;--border:#2a2a2a;--border2:#333;
+  --text:#e8e8e8;--muted:#666;--dim:#444;
+  --green:#4ade80;--green-dim:#1a3a26;
+  --amber:#fbbf24;--amber-dim:#3a2a0a;
+  --red:#f87171;--red-dim:#3a1a1a;
+  --blue:#60a5fa;--blue-dim:#16273d;
+  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5}
+.app{max-width:980px;margin:0 auto;padding:2rem 1.5rem}
+.header{margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-end}
+.header-left h1{font-family:var(--mono);font-size:15px;font-weight:500;color:var(--green);letter-spacing:0.05em}
+.header-left p{font-size:11px;color:var(--muted);margin-top:4px;font-family:var(--mono)}
+.header-right{font-family:var(--mono);font-size:10px;color:var(--dim)}
+
+.section{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:1.25rem;margin-bottom:1rem}
+.section-head{display:flex;justify-content:space-between;align-items:center;cursor:pointer}
+.section-label{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+.step-num{width:18px;height:18px;border-radius:50%;background:var(--surface2);border:1px solid var(--border2);display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:var(--dim);flex-shrink:0;transition:all 0.2s}
+.step-num.done{background:var(--green-dim);border-color:var(--green);color:var(--green)}
+.chevron{font-family:var(--mono);font-size:11px;color:var(--dim);transition:transform 0.2s}
+.chevron.open{transform:rotate(90deg)}
+.section-body{margin-top:1rem}
+.section-body.collapsed{display:none}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.field input{background:var(--surface2);border:1px solid var(--border2);border-radius:3px;padding:6px 8px;font-family:var(--mono);font-size:11px;color:var(--text);width:100%}
+.field input:focus{outline:none;border-color:var(--amber)}
+
+.btn{background:var(--surface2);border:1px solid var(--border2);border-radius:3px;padding:7px 14px;font-family:var(--mono);font-size:11px;color:var(--text);cursor:pointer;transition:all 0.15s}
+.btn:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.btn:disabled{opacity:0.3;cursor:not-allowed}
+.btn.green{border-color:var(--green-dim);color:var(--green)}
+.btn.green:hover:not(:disabled){border-color:var(--green);background:var(--green-dim)}
+.db-status{font-family:var(--mono);font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.db-dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.db-dot.connected{background:var(--green)}
+.db-count{font-size:20px;color:var(--blue);font-weight:500}
+
+.drop-zone{border:1px dashed var(--border2);border-radius:3px;padding:1rem;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:12px}
+.drop-zone:hover,.drop-zone.drag{border-color:var(--amber);background:rgba(251,191,36,0.04)}
+.drop-zone input{display:none}
+.drop-icon{font-size:18px;opacity:0.3;flex-shrink:0}
+.drop-text{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.drop-text strong{color:var(--text);display:block;margin-bottom:2px;font-weight:500}
+.hint{font-family:var(--mono);font-size:10px;color:var(--dim);line-height:1.6;margin-top:8px}
+
+.stage-list{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.stage-item{font-family:var(--mono);font-size:10px;color:var(--muted);display:flex;justify-content:space-between;padding:4px 8px;background:var(--surface2);border-radius:3px}
+.stage-item .new{color:var(--green)}
+
+.ship-card{background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:12px;margin-bottom:10px}
+.ship-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.ship-card-title{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase}
+.ship-files{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.ship-file-row{display:flex;align-items:center;gap:8px}
+.file-drop{flex:1;border:1px dashed var(--border2);border-radius:3px;padding:6px 10px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:8px}
+.file-drop:hover{border-color:var(--amber)}
+.file-drop.loaded{border-color:var(--green);background:rgba(74,222,128,0.04)}
+.file-drop input{display:none}
+.file-drop-icon{font-size:12px;opacity:0.35;width:14px;text-align:center;flex-shrink:0}
+.file-drop-text{font-family:var(--mono);font-size:10px;color:var(--muted);min-width:0}
+.file-drop-text strong{color:var(--text);font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+.file-drop-text span{font-size:9px}
+.mini-x{background:none;border:1px solid transparent;color:var(--dim);cursor:pointer;font-size:12px;width:24px;height:24px;border-radius:3px;flex-shrink:0}
+.mini-x:hover{color:var(--red);border-color:var(--red-dim);background:var(--red-dim)}
+.add-file-link{font-family:var(--mono);font-size:10px;color:var(--dim);cursor:pointer;background:none;border:none;padding:2px 0}
+.add-file-link:hover{color:var(--amber)}
+.ship-card-foot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.cost-label{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.cost-wrap{display:flex;align-items:center;gap:5px}
+.cost-sym{font-family:var(--mono);font-size:12px;color:var(--muted)}
+input[type=number]{background:var(--surface);border:1px solid var(--border2);border-radius:3px;padding:6px 8px;font-family:var(--mono);font-size:12px;color:var(--text);width:110px;text-align:right;-moz-appearance:textfield}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+input:focus{outline:none;border-color:var(--amber)}
+.rm-ship{background:none;border:1px solid var(--border2);color:var(--muted);cursor:pointer;font-family:var(--mono);font-size:10px;padding:5px 10px;border-radius:3px}
+.rm-ship:hover{color:var(--red);border-color:var(--red-dim)}
+.add-row-btn{width:100%;padding:8px;background:none;border:1px dashed var(--border2);border-radius:3px;color:var(--dim);font-family:var(--mono);font-size:10px;cursor:pointer;letter-spacing:0.05em;transition:all 0.15s}
+.add-row-btn:hover{border-color:var(--amber);color:var(--amber)}
+
+.run-btn{width:100%;padding:13px;background:var(--green-dim);border:1px solid var(--green);border-radius:4px;color:var(--green);font-family:var(--mono);font-size:12px;font-weight:500;cursor:pointer;letter-spacing:0.05em;transition:all 0.15s;margin-top:4px}
+.run-btn:hover:not(:disabled){background:rgba(74,222,128,0.18)}
+.run-btn:disabled{opacity:0.25;cursor:not-allowed}
+.progress{margin-top:10px;display:none}
+.prog-track{height:3px;background:var(--surface2);border-radius:2px;overflow:hidden}
+.prog-fill{height:100%;background:var(--green);border-radius:2px;transition:width 0.3s;width:0}
+.status{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:8px;min-height:16px}
+.status.err{color:var(--red)}
+.status.ok{color:var(--green)}
+
+.results{margin-top:1.75rem;display:none}
+.results-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem}
+.results-title{font-family:var(--mono);font-size:13px;color:var(--green);letter-spacing:0.05em}
+.dl-btn{background:none;border:1px solid var(--border2);border-radius:3px;padding:6px 12px;font-family:var(--mono);font-size:10px;color:var(--muted);cursor:pointer}
+.dl-btn:hover{border-color:var(--green);color:var(--green)}
+.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1.5rem}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:12px 14px}
+.stat-label{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:5px}
+.stat-value{font-family:var(--mono);font-size:22px;font-weight:500}
+.stat-value.green{color:var(--green)}
+.stat-sub{font-size:10px;color:var(--dim);margin-top:3px;font-family:var(--mono)}
+.ship-result{margin-bottom:1.75rem}
+.ship-result-hdr{font-family:var(--mono);font-size:11px;color:var(--amber);padding:7px 0;border-bottom:1px solid var(--border2);margin-bottom:8px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:baseline}
+.ship-meta{font-size:10px;color:var(--dim);font-family:var(--mono);line-height:1.8}
+.ship-meta .hl{color:var(--green)}
+.table-wrap{overflow-x:auto}
+table.res{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+table.res th{text-align:left;padding:5px 8px;border-bottom:1px solid var(--border2);color:var(--muted);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;font-weight:400;white-space:nowrap}
+table.res th.r,table.res td.r{text-align:right}
+table.res td{padding:7px 8px;border-bottom:1px solid var(--border);color:var(--text);white-space:nowrap}
+table.res tbody tr:last-child td{border-bottom:none}
+table.res tbody tr:hover td{background:rgba(255,255,255,0.02)}
+.badge-err{display:inline-block;font-size:9px;padding:1px 5px;border-radius:2px;background:var(--red-dim);color:var(--red);margin-left:4px}
+.asin-col{color:var(--blue);font-size:10px}
+.freight-col{color:var(--green)}
+.warn-box{background:var(--amber-dim);border:1px solid rgba(251,191,36,0.25);border-radius:3px;padding:8px 12px;font-family:var(--mono);font-size:10px;color:var(--amber);margin-top:10px;line-height:1.6}
+.no-match{font-family:var(--mono);font-size:11px;color:var(--muted);padding:10px 0;font-style:italic}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="header">
+    <div class="header-left">
+      <h1>// SWH FREIGHT ALLOCATOR</h1>
+      <p>Shared ASIN volume database on GitHub · Keepa fills only the gaps</p>
+    </div>
+    <div class="header-right">v4.0</div>
+  </div>
+
+  <!-- DB connection -->
+  <div class="section">
+    <div class="section-head" onclick="toggle('cfg')">
+      <div class="section-label"><span class="step-num" id="sn-db">DB</span>Database connection</div>
+      <span class="chevron open" id="chev-cfg">▸</span>
+    </div>
+    <div class="section-body" id="body-cfg">
+      <div class="grid2">
+        <div class="field"><label>GitHub owner (user/org)</label><input id="gh-owner" placeholder="your-github-username" oninput="saveCfg()"></div>
+        <div class="field"><label>Repo name</label><input id="gh-repo" placeholder="swh-freight" oninput="saveCfg()"></div>
+        <div class="field"><label>Branch</label><input id="gh-branch" value="main" oninput="saveCfg()"></div>
+        <div class="field"><label>DB file path</label><input id="gh-path" value="volume_db.json" oninput="saveCfg()"></div>
+        <div class="field"><label>GitHub token (Contents: read &amp; write)</label><input id="gh-token" type="password" placeholder="github_pat_..." oninput="saveCfg()"></div>
+        <div class="field"><label>Keepa API key (gap fills only)</label><input id="keepa-key" type="password" placeholder="keepa api key" oninput="saveCfg()"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap">
+        <button class="btn green" onclick="connectDB()">Connect &amp; load DB</button>
+        <div class="db-status"><span class="db-dot" id="db-dot"></span><span id="db-msg">not connected</span></div>
+        <div style="margin-left:auto" class="db-status"><span class="db-count" id="db-count">0</span><span>ASINs in DB</span></div>
+      </div>
+      <div class="hint">Token and Keepa key are stored only in this browser, never committed. The DB file itself is public ASIN→volume data.</div>
+    </div>
+  </div>
+
+  <!-- Build / seed -->
+  <div class="section">
+    <div class="section-head" onclick="toggle('build')">
+      <div class="section-label"><span class="step-num" id="sn-build">+</span>Build database (seed from reports)</div>
+      <span class="chevron" id="chev-build">▸</span>
+    </div>
+    <div class="section-body collapsed" id="body-build">
+      <div class="drop-zone" id="dz-seed"
+        onclick="document.getElementById('seed-file').click()"
+        ondragover="dzOn(event,'dz-seed')" ondragleave="dzOff('dz-seed')" ondrop="dropSeed(event)">
+        <input type="file" id="seed-file" accept=".txt,.tsv,.csv" multiple onchange="loadSeed(event)">
+        <div class="drop-icon">▤</div>
+        <div class="drop-text">
+          <strong>Drop Fee Preview / storage reports (multiple OK)</strong>
+          Upload every report you have, Jan onward — each one adds new ASINs to the database
+        </div>
+      </div>
+      <div class="stage-list" id="seed-staged"></div>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center">
+        <button class="btn green" id="commit-btn" onclick="commitSeed()" disabled>Commit new ASINs to DB</button>
+        <div class="status" id="seed-status" style="margin:0"></div>
+      </div>
+      <div class="hint">Reports give dimensions for free. Anything still missing after seeding gets filled by Keepa during a run, then it's in the DB forever.</div>
+    </div>
+  </div>
+
+  <!-- Run -->
+  <div class="section">
+    <div class="section-head" onclick="toggle('run')">
+      <div class="section-label"><span class="step-num done" id="sn-run">▶</span>Run allocation</div>
+      <span class="chevron open" id="chev-run">▸</span>
+    </div>
+    <div class="section-body" id="body-run">
+      <div id="ship-cards"></div>
+      <button class="add-row-btn" onclick="addShipment()">+ add shipment</button>
+      <div class="hint">If one freight charge covered multiple FBA shipments, add all their SKU files under one shipment and enter the single combined cost.</div>
+      <button class="run-btn" id="run-btn" onclick="run()" disabled>RUN ALLOCATION</button>
+      <div class="progress" id="progress"><div class="prog-track"><div class="prog-fill" id="prog-fill"></div></div></div>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="results" id="results">
+    <div class="results-hdr">
+      <div class="results-title">// RESULTS</div>
+      <button class="dl-btn" onclick="downloadCSV()">↓ EXPORT CSV</button>
+    </div>
+    <div class="summary-grid" id="sum-grid"></div>
+    <div id="ship-results"></div>
+  </div>
+
+</div>
+
+<script>
+// ═══ Config (cached locally, never committed) ════════════════════════════════
+const CFG_KEY = 'swh_freight_cfg_v1';
+function saveCfg() {
+  const cfg = {
+    owner: gv('gh-owner'), repo: gv('gh-repo'), branch: gv('gh-branch'),
+    path: gv('gh-path'), token: gv('gh-token'), keepa: gv('keepa-key'),
+  };
+  try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
+}
+function loadCfg() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CFG_KEY) || '{}');
+    if (c.owner) sv('gh-owner', c.owner);
+    if (c.repo) sv('gh-repo', c.repo);
+    if (c.branch) sv('gh-branch', c.branch);
+    if (c.path) sv('gh-path', c.path);
+    if (c.token) sv('gh-token', c.token);
+    if (c.keepa) sv('keepa-key', c.keepa);
+  } catch (e) {}
+}
+function gv(id) { return document.getElementById(id).value.trim(); }
+function sv(id, v) { document.getElementById(id).value = v; }
+
+// ═══ State ═══════════════════════════════════════════════════════════════════
+let DB = {};            // key (fnsku||asin) -> {asin, fnsku, sku, cuft, isSWH}
+let byFnsku = {}, byAsin = {};
+let dbSha = null;
+let dbConnected = false;
+let staged = {};        // key -> record (new, pending commit)
+let ships = [];
+let shipCounter = 0, fileCounter = 0;
+let resultData = [];
+
+// ═══ UI helpers ══════════════════════════════════════════════════════════════
+function toggle(name) {
+  const body = document.getElementById('body-' + name);
+  const chev = document.getElementById('chev-' + name);
+  body.classList.toggle('collapsed');
+  chev.classList.toggle('open');
+}
+function dzOn(e, id) { e.preventDefault(); document.getElementById(id).classList.add('drag'); }
+function dzOff(id) { document.getElementById(id).classList.remove('drag'); }
+function readText(file, cb) { const r = new FileReader(); r.onload = e => cb(e.target.result); r.readAsText(file, 'latin-1'); }
+function setStatus(id, msg, cls) { const el = document.getElementById(id); el.textContent = msg; el.className = 'status' + (cls ? ' ' + cls : ''); }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function sidesToCuft(L, M, S, unit) {
+  if (!(L > 0 && M > 0 && S > 0)) return null;
+  const u = (unit || '').toLowerCase();
+  const vol = L * M * S;
+  if (u.startsWith('cent') || u === 'cm') return vol / 28316.846;
+  return vol / 1728;
+}
+
+// ═══ Base64 (utf-8 safe) ═════════════════════════════════════════════════════
+function b64encode(str) { return btoa(unescape(encodeURIComponent(str))); }
+function b64decode(b64) { return decodeURIComponent(escape(atob(b64.replace(/\n/g, '')))); }
+
+// ═══ GitHub DB I/O ═══════════════════════════════════════════════════════════
+function ghBase() { return `https://api.github.com/repos/${gv('gh-owner')}/${gv('gh-repo')}/contents/${gv('gh-path')}`; }
+function ghHeaders() { return { 'Authorization': 'Bearer ' + gv('gh-token'), 'Accept': 'application/vnd.github+json' }; }
+
+async function ghLoad() {
+  const url = ghBase() + '?ref=' + gv('gh-branch') + '&t=' + Date.now();
+  const r = await fetch(url, { headers: ghHeaders() });
+  if (r.status === 404) return { records: {}, sha: null };
+  if (!r.ok) throw new Error('GitHub load failed: ' + r.status + ' (check owner/repo/path/token)');
+  const d = await r.json();
+  const obj = JSON.parse(b64decode(d.content));
+  return { records: obj.records || {}, sha: d.sha };
+}
+
+async function ghSave(records, message) {
+  // re-fetch sha to avoid conflicts
+  let sha = dbSha;
+  try { const cur = await ghLoad(); sha = cur.sha; } catch (e) {}
+  const body = {
+    message: message,
+    content: b64encode(JSON.stringify({ records, updated: new Date().toISOString() }, null, 0)),
+    branch: gv('gh-branch'),
+  };
+  if (sha) body.sha = sha;
+  const r = await fetch(ghBase(), { method: 'PUT', headers: { ...ghHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) { const t = await r.text(); throw new Error('GitHub save failed: ' + r.status + ' ' + t.slice(0, 120)); }
+  const d = await r.json();
+  dbSha = d.content.sha;
+}
+
+function rebuildIndexes() {
+  byFnsku = {}; byAsin = {};
+  for (const k in DB) {
+    const rec = DB[k];
+    if (rec.fnsku) byFnsku[rec.fnsku] = rec;
+    if (rec.asin && (!byAsin[rec.asin] || (rec.isSWH && !byAsin[rec.asin].isSWH))) byAsin[rec.asin] = rec;
+  }
+  document.getElementById('db-count').textContent = Object.keys(DB).length.toLocaleString();
+}
+
+async function connectDB() {
+  if (!gv('gh-owner') || !gv('gh-repo') || !gv('gh-token')) {
+    setDbStatus('fill owner, repo, and token first', false); return;
+  }
+  setDbStatus('connecting…', false);
+  try {
+    const { records, sha } = await ghLoad();
+    DB = records; dbSha = sha; dbConnected = true;
+    rebuildIndexes();
+    setDbStatus('connected', true);
+    document.getElementById('sn-db').className = 'step-num done';
+    checkReady();
+  } catch (e) {
+    dbConnected = false;
+    setDbStatus(e.message, false);
+  }
+}
+
+function setDbStatus(msg, ok) {
+  document.getElementById('db-msg').textContent = msg;
+  document.getElementById('db-dot').className = 'db-dot' + (ok ? ' connected' : '');
+}
+
+// ═══ Seed / build mode ═══════════════════════════════════════════════════════
+function loadSeed(e) { [...e.target.files].forEach(parseSeed); e.target.value = ''; }
+function dropSeed(e) { e.preventDefault(); dzOff('dz-seed'); [...e.dataTransfer.files].forEach(parseSeed); }
+
+function parseSeed(file) {
+  readText(file, text => {
+    const firstLine = text.split('\n')[0];
+    const delim = firstLine.includes('\t') ? '\t' : ',';
+    const lines = text.split('\n').filter(l => l.trim());
+    const hdrs = lines[0].split(delim).map(h => h.trim().toLowerCase());
+    const iSku = hdrs.indexOf('sku'), iFn = hdrs.indexOf('fnsku'), iAsin = hdrs.indexOf('asin');
+    const iL = hdrs.indexOf('longest-side'), iM = hdrs.indexOf('median-side'), iS = hdrs.indexOf('shortest-side');
+    const iU = hdrs.indexOf('unit-of-dimension');
+    const iVol = hdrs.findIndex(h => h === 'per-unit-volume' || h === 'item-volume');
+    if (iAsin < 0 || (iL < 0 && iVol < 0)) { setStatus('seed-status', 'Not a dimensions report: ' + file.name, 'err'); return; }
+
+    let found = 0, newCount = 0;
+    for (let i = 1; i < lines.length; i++) {
+      const c = lines[i].split(delim);
+      const asin = (c[iAsin] || '').trim();
+      if (!asin) continue;
+      const sku = iSku >= 0 ? (c[iSku] || '').trim() : '';
+      const fnsku = iFn >= 0 ? (c[iFn] || '').trim() : '';
+      let cuft = null;
+      if (iVol >= 0) { const v = parseFloat(c[iVol]); if (v > 0) cuft = v; }
+      if (cuft == null && iL >= 0) cuft = sidesToCuft(parseFloat(c[iL]), parseFloat(c[iM]), parseFloat(c[iS]), iU >= 0 ? c[iU] : 'inches');
+      if (cuft == null) continue;
+      const key = fnsku || asin;
+      found++;
+      if (!(key in DB) && !(key in staged)) {
+        staged[key] = { asin, fnsku, sku, cuft: +cuft.toFixed(5), isSWH: sku.toUpperCase().includes('SWH') };
+        newCount++;
+      }
+    }
+    renderStaged(file.name, found, newCount);
+  });
+}
+
+let stagedFiles = [];
+function renderStaged(name, found, newCount) {
+  stagedFiles.push({ name, found, newCount });
+  document.getElementById('seed-staged').innerHTML = stagedFiles.map(f =>
+    `<div class="stage-item"><span>${f.name}</span><span>${f.found} dims · <span class="new">+${f.newCount} new</span></span></div>`
+  ).join('');
+  const totalNew = Object.keys(staged).length;
+  document.getElementById('commit-btn').disabled = totalNew === 0 || !dbConnected;
+  setStatus('seed-status', `${totalNew} new ASINs staged${dbConnected ? '' : ' — connect DB first'}`, '');
+}
+
+async function commitSeed() {
+  if (!dbConnected) { setStatus('seed-status', 'Connect the DB first', 'err'); return; }
+  const n = Object.keys(staged).length;
+  if (!n) return;
+  document.getElementById('commit-btn').disabled = true;
+  setStatus('seed-status', `Committing ${n} ASINs…`, '');
+  try {
+    for (const k in staged) DB[k] = staged[k];
+    await ghSave(DB, `Seed: +${n} ASINs from ${stagedFiles.length} report(s)`);
+    rebuildIndexes();
+    staged = {}; stagedFiles = [];
+    document.getElementById('seed-staged').innerHTML = '';
+    setStatus('seed-status', `Committed. DB now holds ${Object.keys(DB).length} ASINs.`, 'ok');
+  } catch (e) {
+    setStatus('seed-status', e.message, 'err');
+    document.getElementById('commit-btn').disabled = false;
+  }
+}
+
+// ═══ Shipments ═══════════════════════════════════════════════════════════════
+function addShipment() { ships.push({ id: ++shipCounter, cost: '', files: [{ fileId: ++fileCounter, name: '', rows: [] }] }); renderShips(); }
+function removeShipment(id) { ships = ships.filter(s => s.id !== id); renderShips(); checkReady(); }
+function setShipCost(id, v) { const s = ships.find(x => x.id === id); if (s) s.cost = v; }
+function addFileSlot(shipId) { const s = ships.find(x => x.id === shipId); if (s) { s.files.push({ fileId: ++fileCounter, name: '', rows: [] }); renderShips(); } }
+function removeFileSlot(shipId, fileId) { const s = ships.find(x => x.id === shipId); if (s) { s.files = s.files.filter(f => f.fileId !== fileId); if (!s.files.length) s.files.push({ fileId: ++fileCounter, name: '', rows: [] }); renderShips(); checkReady(); } }
+function loadShipFile(e, shipId, fileId) { const f = e.target.files[0]; if (f) parseShipFile(f, shipId, fileId); }
+function dropShipFile(e, shipId, fileId) { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) parseShipFile(f, shipId, fileId); }
+
+function parseShipFile(file, shipId, fileId) {
+  readText(file, text => {
+    const lines = text.split('\n');
+    let hi = -1;
+    for (let i = 0; i < lines.length; i++) { const l = lines[i].toLowerCase(); if (l.includes('merchant sku') && l.includes('fnsku')) { hi = i; break; } }
+    if (hi < 0) { setStatus('status', 'Cannot find header row in: ' + file.name, 'err'); return; }
+    const hdrs = lines[hi].split('\t').map(h => h.trim().toLowerCase());
+    const mi = hdrs.indexOf('merchant sku'), fi = hdrs.findIndex(h => h === 'fnsku'), ai = hdrs.findIndex(h => h === 'asin'), si = hdrs.findIndex(h => h === 'shipped');
+    const rows = [];
+    for (let i = hi + 1; i < lines.length; i++) {
+      const c = lines[i].split('\t');
+      if (c.length < 4) continue;
+      const msku = (c[mi] || '').trim(), fnsku = (c[fi] || '').trim(), asin = (c[ai] || '').trim(), units = parseInt(c[si]) || 0;
+      if (msku && asin && units > 0) rows.push({ msku, fnsku, asin, units });
+    }
+    if (!rows.length) { setStatus('status', 'No data rows in: ' + file.name, 'err'); return; }
+    const s = ships.find(x => x.id === shipId);
+    const f = s && s.files.find(x => x.fileId === fileId);
+    if (f) { f.name = file.name; f.rows = rows; }
+    renderShips();
+    checkReady();
+  });
+}
+
+function renderShips() {
+  document.getElementById('ship-cards').innerHTML = ships.map((s, idx) => {
+    const filesHtml = s.files.map(f => {
+      const loaded = f.rows.length > 0;
+      const units = f.rows.reduce((a, r) => a + r.units, 0);
+      return `<div class="ship-file-row">
+        <div class="file-drop ${loaded ? 'loaded' : ''}" onclick="document.getElementById('shf-${f.fileId}').click()"
+          ondragover="event.preventDefault()" ondrop="dropShipFile(event, ${s.id}, ${f.fileId})">
+          <input type="file" id="shf-${f.fileId}" accept=".txt,.tsv,.csv" style="display:none" onchange="loadShipFile(event, ${s.id}, ${f.fileId})">
+          <span class="file-drop-icon">${loaded ? '✓' : '↑'}</span>
+          <div class="file-drop-text"><strong>${loaded ? f.name : 'Click or drop SKU list (FBA shipment TSV)'}</strong>
+          <span>${loaded ? `${f.rows.length} SKUs · ${units.toLocaleString()} units` : 'shipment contents file'}</span></div>
+        </div>
+        <button class="mini-x" onclick="removeFileSlot(${s.id}, ${f.fileId})">✕</button>
+      </div>`;
+    }).join('');
+    return `<div class="ship-card">
+      <div class="ship-card-head"><span class="ship-card-title">Shipment ${idx + 1}</span>
+        <button class="rm-ship" onclick="removeShipment(${s.id})">remove</button></div>
+      <div class="ship-files">${filesHtml}</div>
+      <button class="add-file-link" onclick="addFileSlot(${s.id})">+ add another SKU list (shared freight charge)</button>
+      <div class="ship-card-foot"><span class="cost-label">Total freight cost paid</span>
+        <div class="cost-wrap"><span class="cost-sym">$</span>
+          <input type="number" placeholder="0.00" value="${s.cost}" min="0" step="0.01" oninput="setShipCost(${s.id}, this.value)"></div>
+      </div></div>`;
+  }).join('');
+}
+
+function checkReady() {
+  document.getElementById('run-btn').disabled = !(dbConnected && ships.some(s => s.files.some(f => f.rows.length)));
+}
+
+// ═══ Keepa (gap fills) ═══════════════════════════════════════════════════════
+async function keepaFetch(asins, key) {
+  const url = `https://api.keepa.com/product?key=${key}&domain=1&asin=${asins.join(',')}&stats=0&offers=0&history=0`;
+  const r = await fetch(url);
+  if (r.status === 429) return { rateLimited: true };
+  if (!r.ok) throw new Error('Keepa ' + r.status);
+  const d = await r.json();
+  return { products: d.products || [], tokensLeft: d.tokensLeft, refillIn: d.refillIn };
+}
+function keepaCuft(p) {
+  if (!p || p.packageLength <= 0 || p.packageWidth <= 0 || p.packageHeight <= 0) return null;
+  const l = p.packageLength / 100 * 0.393701, w = p.packageWidth / 100 * 0.393701, h = p.packageHeight / 100 * 0.393701;
+  return (l * w * h) / 1728;
+}
+
+function setProg(p) { document.getElementById('prog-fill').style.width = p + '%'; }
+
+// ═══ Run ═════════════════════════════════════════════════════════════════════
+function lookup(fnsku, asin) { return byFnsku[fnsku] || byAsin[asin] || null; }
+
+async function run() {
+  if (!dbConnected) { setStatus('status', 'Connect the DB first', 'err'); return; }
+  const validShips = ships.filter(s => s.files.some(f => f.rows.length));
+  if (!validShips.length) return;
+  document.getElementById('run-btn').disabled = true;
+  resultData = [];
+
+  // 1. Find ASINs not in DB across all shipments
+  const need = {};   // asin -> {fnsku, msku}
+  for (const s of validShips) for (const f of s.files) for (const r of f.rows) {
+    if (!lookup(r.fnsku, r.asin)) need[r.asin] = { fnsku: r.fnsku, msku: r.msku };
+  }
+  const gapAsins = Object.keys(need);
+
+  // 2. Keepa-fill gaps, commit to DB
+  if (gapAsins.length) {
+    const key = gv('keepa-key');
+    if (!key) { setStatus('status', `${gapAsins.length} ASINs missing from DB and no Keepa key set. Add the key or seed those ASINs.`, 'err'); document.getElementById('run-btn').disabled = false; return; }
+    document.getElementById('progress').style.display = 'block';
+    const newRecs = {};
+    const BATCH = 5;
+    for (let i = 0; i < gapAsins.length; i += BATCH) {
+      const batch = gapAsins.slice(i, i + BATCH);
+      setStatus('status', `Keepa: filling ${i + 1}–${Math.min(i + BATCH, gapAsins.length)} of ${gapAsins.length} new ASINs…`, '');
+      let res;
+      try { res = await keepaFetch(batch, key); } catch (e) { setStatus('status', 'Keepa error: ' + e.message + ' — retry 20s', 'err'); await sleep(20000); i -= BATCH; continue; }
+      if (res.rateLimited) { setStatus('status', 'Rate limited — waiting 60s…', 'err'); await sleep(60000); i -= BATCH; continue; }
+      for (const p of res.products) {
+        const cuft = keepaCuft(p);
+        if (cuft != null) {
+          const meta = need[p.asin] || {};
+          const key2 = meta.fnsku || p.asin;
+          newRecs[key2] = { asin: p.asin, fnsku: meta.fnsku || '', sku: meta.msku || '', cuft: +cuft.toFixed(5), isSWH: (meta.msku || '').toUpperCase().includes('SWH') };
+        }
+      }
+      setProg(Math.round(Math.min(i + BATCH, gapAsins.length) / gapAsins.length * 100));
+      if (typeof res.tokensLeft === 'number' && res.tokensLeft < BATCH && i + BATCH < gapAsins.length) {
+        const wait = res.refillIn && res.refillIn > 0 ? res.refillIn + 500 : 60000;
+        setStatus('status', `Tokens low — waiting ${Math.round(wait / 1000)}s…`, ''); await sleep(wait);
+      }
+    }
+    // commit gap fills
+    if (Object.keys(newRecs).length) {
+      setStatus('status', `Saving ${Object.keys(newRecs).length} new ASINs to DB…`, '');
+      try { for (const k in newRecs) DB[k] = newRecs[k]; await ghSave(DB, `Run: +${Object.keys(newRecs).length} ASINs via Keepa`); rebuildIndexes(); }
+      catch (e) { setStatus('status', 'DB save failed: ' + e.message, 'err'); }
+    }
+  }
+
+  // 3. Allocate
+  for (const ship of validShips) {
+    const freightCost = parseFloat(ship.cost) || 0;
+    const allLines = [];
+    for (const f of ship.files) for (const r of f.rows) allLines.push(r);
+    let totalCuft = 0, missingVol = 0;
+    const lineData = allLines.map(r => {
+      const ref = lookup(r.fnsku, r.asin);
+      const cuft = ref && ref.cuft != null ? ref.cuft : null;
+      if (cuft != null) totalCuft += cuft * r.units; else missingVol++;
+      return { ...r, ref, cuft, isSWH: ref ? ref.isSWH : false };
+    });
+    const ratePerCuft = totalCuft > 0 ? freightCost / totalCuft : 0;
+    const swhRows = lineData.filter(r => r.isSWH).map(r => {
+      const cuftTotal = r.cuft != null ? r.cuft * r.units : null;
+      const freightShare = cuftTotal != null ? cuftTotal * ratePerCuft : null;
+      const freightPct = cuftTotal != null && totalCuft > 0 ? (cuftTotal / totalCuft * 100) : null;
+      return { msku: (r.ref && r.ref.sku) || r.msku, asin: r.asin, units: r.units, cuftEach: r.cuft, cuftTotal, freightShare, freightPct, hasDims: r.cuft != null };
+    });
+    const swhCuft = swhRows.reduce((a, r) => a + (r.cuftTotal || 0), 0);
+    const swhFreight = swhRows.reduce((a, r) => a + (r.freightShare || 0), 0);
+    const missingPct = allLines.length > 0 ? Math.round(missingVol / allLines.length * 100) : 0;
+    const label = ship.files.filter(f => f.name).map(f => f.name).join(' + ') || `Shipment ${ship.id}`;
+    resultData.push({ label, freightCost, totalCuft, ratePerCuft, missingVol, missingPct, swhRows, swhCuft, swhFreight, skuCount: allLines.length });
+  }
+
+  setProg(100);
+  setStatus('status', `Done — ${resultData.reduce((a, d) => a + d.swhRows.length, 0)} SWH lines. DB holds ${Object.keys(DB).length} ASINs.`, 'ok');
+  renderResults();
+  document.getElementById('run-btn').disabled = false;
+}
+
+// ═══ Render ══════════════════════════════════════════════════════════════════
+function fmt(n, d = 2) { return n == null ? '—' : '$' + n.toFixed(d); }
+function fmtN(n, d = 4) { return n == null ? '—' : n.toFixed(d); }
+
+function renderResults() {
+  document.getElementById('results').style.display = 'block';
+  const totUnits = resultData.reduce((a, d) => a + d.swhRows.reduce((b, r) => b + r.units, 0), 0);
+  const totCuft = resultData.reduce((a, d) => a + d.swhCuft, 0);
+  const totFreight = resultData.reduce((a, d) => a + d.swhFreight, 0);
+  document.getElementById('sum-grid').innerHTML = `
+    <div class="stat"><div class="stat-label">SWH Units</div><div class="stat-value">${totUnits.toLocaleString()}</div><div class="stat-sub">${resultData.length} shipment(s)</div></div>
+    <div class="stat"><div class="stat-label">SWH Cubic Feet</div><div class="stat-value">${totCuft.toFixed(2)}</div><div class="stat-sub">across all shipments</div></div>
+    <div class="stat"><div class="stat-label">SWH Freight Cost</div><div class="stat-value green">${fmt(totFreight)}</div><div class="stat-sub">your share of freight</div></div>`;
+  let html = '';
+  for (const d of resultData) {
+    html += `<div class="ship-result"><div class="ship-result-hdr"><span>▸ ${d.label}</span>
+      <span class="ship-meta">Freight: ${fmt(d.freightCost)} · ${d.skuCount} SKUs · Total cube: ${d.totalCuft.toFixed(3)} cuft · Rate: ${fmt(d.ratePerCuft, 4)}/cuft · SWH cube: ${d.swhCuft.toFixed(3)} cuft · SWH freight: <span class="hl">${fmt(d.swhFreight)}</span>${d.missingVol > 0 ? ` · <span style="color:var(--amber)">⚠ ${d.missingVol} no dims (${d.missingPct}%)</span>` : ''}</span></div>`;
+    if (!d.swhRows.length) html += `<div class="no-match">No SWH SKUs matched on this shipment.</div>`;
+    else {
+      html += `<div class="table-wrap"><table class="res"><thead><tr><th>MSKU</th><th>ASIN</th><th class="r">Units</th><th class="r">CuFt / ea</th><th class="r">CuFt total</th><th class="r">% of truck</th><th class="r">Freight share</th></tr></thead><tbody>`;
+      for (const r of d.swhRows) html += `<tr><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis" title="${r.msku}">${r.msku}</td><td class="asin-col">${r.asin}</td><td class="r">${r.units}${!r.hasDims ? '<span class="badge-err">no dims</span>' : ''}</td><td class="r">${fmtN(r.cuftEach)}</td><td class="r">${fmtN(r.cuftTotal)}</td><td class="r">${r.freightPct != null ? r.freightPct.toFixed(2) + '%' : '—'}</td><td class="r freight-col">${fmt(r.freightShare)}</td></tr>`;
+      html += `</tbody></table></div>`;
+    }
+    if (d.missingPct > 10) html += `<div class="warn-box">⚠ ${d.missingVol} SKUs (${d.missingPct}%) still missing dimensions even after Keepa — excluded from total cube, so your share is slightly overstated. These ASINs likely have no package dimensions anywhere.</div>`;
+    html += `</div>`;
+  }
+  document.getElementById('ship-results').innerHTML = html;
+}
+
+function downloadCSV() {
+  const hdrs = ['Shipment', 'Freight Cost ($)', 'Total Cube (cuft)', 'Rate ($/cuft)', 'MSKU', 'ASIN', 'Units', 'CuFt Each', 'CuFt Total', '% of Truck', 'Freight Share ($)'];
+  const rows = [];
+  for (const d of resultData) for (const r of d.swhRows) rows.push([d.label, d.freightCost.toFixed(2), d.totalCuft.toFixed(4), d.ratePerCuft.toFixed(4), r.msku, r.asin, r.units, r.cuftEach != null ? r.cuftEach.toFixed(4) : '', r.cuftTotal != null ? r.cuftTotal.toFixed(4) : '', r.freightPct != null ? r.freightPct.toFixed(2) + '%' : '', r.freightShare != null ? r.freightShare.toFixed(2) : '']);
+  const csv = [hdrs, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'swh_freight.csv'; a.click();
+}
+
+// ═══ Init ════════════════════════════════════════════════════════════════════
+loadCfg();
+addShipment();
+</script>
+</body>
+</html>
